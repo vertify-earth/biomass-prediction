@@ -38,20 +38,19 @@ Latest model evaluation results demonstrate strong predictive performance across
 
 ### Cross-Validation Summary (5-fold)
 
-**Log Scale (Training Scale):**
+<!-- **Log Scale (Training Scale):**
 - **RMSE**: 0.1339 ± 0.0252
 - **R²**: 0.8938 ± 0.0334
 - **MAE**: 0.1012 ± 0.0158
 - **Spearman Correlation**: 0.9393 ± 0.0141
 
-**Original Scale (Biomass in Mg/ha):**
+**Original Scale (Biomass in Mg/ha):** -->
+
 - **RMSE**: 25.5 ± 2.5 Mg/ha
 - **R²**: 0.8739 ± 0.0228
 - **MAE**: 19.1 ± 1.8 Mg/ha
 - **Mean True Biomass**: 194.7 Mg/ha
 - **Biomass Range**: 39.5 - 373.6 Mg/ha
-
-**Performance Assessment:**
 - **Relative RMSE**: 13.1% of mean biomass
 
 
@@ -87,7 +86,10 @@ The model integrates data from multiple satellite sensors:
 - **PALSAR**: L-band SAR
 - **Digital Elevation Model**: Topographic information
 
-The input stack was generated in Google Earth Engine. You can find the script to generate the 59 band stack in the utils folder.
+More on this here : `docs/satellite-data.md`
+
+The input stack was generated in Google Earth Engine using this script: `scripts/satellite_data_preparation.js`
+
   
 ## Features
 
@@ -139,6 +141,7 @@ The input stack was generated in Google Earth Engine. You can find the script to
 │   ├── run_full_pipeline.py
 │   ├── run_preprocessing.py
 │   └── run_training.py
+|   └── satellite_data_preparation.js
 ├── src/                    # Source code for the biomass prediction pipeline
 │   ├── __init__.py
 │   ├── models/             # Model architectures, training logic (HybridSpatialCV), loss functions
