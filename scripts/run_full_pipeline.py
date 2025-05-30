@@ -156,10 +156,20 @@ def main():
         if not args.preprocessing_only:
             # Print final metrics summary
             import numpy as np
-            rmse_values = [m['rmse'] for m in fold_metrics]
-            r2_values = [m['r2'] for m in fold_metrics]
-            mae_values = [m['mae'] for m in fold_metrics]
-            spearman_values = [m['spearman'] for m in fold_metrics]
+            # rmse_values = [m['rmse'] for m in fold_metrics]
+            # r2_values = [m['r2'] for m in fold_metrics]
+            # mae_values = [m['mae'] for m in fold_metrics]
+            # spearman_values = [m['spearman'] for m in fold_metrics]
+
+            # Choose which scale to report (log_scale or original_scale)
+            scale_to_report = 'original_scale'  # or 'log_scale' depending on your preference
+
+            rmse_values = [m[scale_to_report]['rmse'] for m in fold_metrics]
+            r2_values = [m[scale_to_report]['r2'] for m in fold_metrics]
+            mae_values = [m[scale_to_report]['mae'] for m in fold_metrics]
+            spearman_values = [m[scale_to_report]['spearman'] for m in fold_metrics]
+
+            print("\nFinal Cross-Validation Results (in", "original scale):" if scale_to_report == 'original_scale' else "log scale):")
             
             print("\nFinal Cross-Validation Results:")
             print(f"RMSE: {np.mean(rmse_values):.4f} ± {np.std(rmse_values):.4f}")

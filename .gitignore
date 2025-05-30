@@ -109,14 +109,17 @@ data/processed/
 *.nc
 *.zarr
 
+notebooks/
+01_data_exploration.ipynb
+
 # Results and outputs
-results/
-spatial_biomass_results/
-*.png
-*.pdf
-*.svg
-*.jpg
-*.jpeg
+# results/
+# spatial_biomass_results/
+# *.png
+# *.pdf
+# *.svg
+# *.jpg
+# *.jpeg
 
 # Model files
 *.pt

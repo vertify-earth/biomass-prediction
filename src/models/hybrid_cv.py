@@ -52,6 +52,113 @@ from src.utils.visualization import visualize_cv_results
 warnings.filterwarnings('ignore')
 
 
+# Add after the imports
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        import numpy as np
+        if isinstance(obj, (np.integer, np.floating, np.bool_)):
+            return obj.item()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
+
+
+# ======================================================================
+# BIOMASS TRANSFORMATION UTILITIES
+# ======================================================================
+
+def inverse_transform_biomass(y_transformed, transform_type="log", transform_params=None):
+    """
+    Convert transformed biomass values back to original scale.
+    
+    Args:
+        y_transformed: Transformed biomass values
+        transform_type: Type of transformation used ("log", "none")
+        transform_params: Additional parameters for transformation
+    
+    Returns:
+        y_original: Biomass values in original scale (e.g., Mg/ha)
+    """
+    if transform_type == "log":
+        # Inverse of log(biomass + 1) is exp(y) - 1
+        y_original = np.exp(y_transformed) - 1
+        # Ensure non-negative values
+        y_original = np.maximum(y_original, 0)
+    elif transform_type == "none":
+        y_original = y_transformed
+    else:
+        print(f"Warning: Unknown transform type '{transform_type}', returning as-is")
+        y_original = y_transformed
+    
+    return y_original
+
+
+def detect_transform_type(preprocess_config):
+    """
+    Detect what transformation was used during preprocessing.
+    
+    Args:
+        preprocess_config: Preprocessing configuration dict
+    
+    Returns:
+        transform_type: String indicating transformation type
+        transform_params: Dict with transformation parameters
+    """
+    if preprocess_config.get('use_log_transform', False):
+        return "log", {"base": "natural"}
+    else:
+        return "none", {}
+
+
+def calculate_dual_metrics(y_true_log, y_pred_log, transform_type="log"):
+    """
+    Calculate metrics in both log and original scales.
+    
+    Args:
+        y_true_log: True values in log scale
+        y_pred_log: Predicted values in log scale
+        transform_type: Type of transformation used
+    
+    Returns:
+        metrics_log: Metrics calculated on log scale
+        metrics_original: Metrics calculated on original scale
+    """
+    # Handle NaN values
+    valid_mask = ~(np.isnan(y_true_log) | np.isnan(y_pred_log))
+    y_true_log_valid = y_true_log[valid_mask]
+    y_pred_log_valid = y_pred_log[valid_mask]
+    
+    # Log scale metrics
+    metrics_log = {
+        'rmse': np.sqrt(mean_squared_error(y_true_log_valid, y_pred_log_valid)),
+        'r2': r2_score(y_true_log_valid, y_pred_log_valid),
+        'mae': mean_absolute_error(y_true_log_valid, y_pred_log_valid),
+        'spearman': spearmanr(y_true_log_valid, y_pred_log_valid)[0] if len(y_true_log_valid) > 1 else 0.0
+    }
+    
+    # Convert to original scale
+    y_true_original = inverse_transform_biomass(y_true_log_valid, transform_type)
+    y_pred_original = inverse_transform_biomass(y_pred_log_valid, transform_type)
+    
+    # Original scale metrics
+    metrics_original = {
+        'rmse': np.sqrt(mean_squared_error(y_true_original, y_pred_original)),
+        'r2': r2_score(y_true_original, y_pred_original),
+        'mae': mean_absolute_error(y_true_original, y_pred_original),
+        'spearman': spearmanr(y_true_original, y_pred_original)[0] if len(y_true_original) > 1 else 0.0,
+        'mean_true': np.mean(y_true_original),
+        'mean_pred': np.mean(y_pred_original),
+        'std_true': np.std(y_true_original),
+        'std_pred': np.std(y_pred_original),
+        'min_true': np.min(y_true_original),
+        'max_true': np.max(y_true_original),
+        'min_pred': np.min(y_pred_original),
+        'max_pred': np.max(y_pred_original)
+    }
+    
+    return metrics_log, metrics_original
+
+
 # ======================================================================
 # FEATURE ENGINEERING
 # ======================================================================
@@ -729,9 +836,15 @@ def test_time_augmentation(model, X_test, config, device):
     return y_pred
 
 
-def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config, device):
-    """Evaluate the model on test data."""
+def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config, device, preprocess_config=None):
+    """Evaluate the model on test data with proper inverse transformation."""
     print("\nEvaluating model...")
+    
+    # Detect transformation type
+    transform_type = "none"
+    if preprocess_config and preprocess_config.get('use_log_transform', False):
+        transform_type = "log"
+        print(f"  Detected log transformation - will convert results to original biomass scale")
     
     # Convert test data to tensors
     X_test_tensor = torch.FloatTensor(X_test).to(device)
@@ -741,7 +854,7 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
     
     # Make predictions - use test-time augmentation if configured
     if config and config.use_test_time_augmentation:
-        y_pred = test_time_augmentation(model, X_test, config, device)
+        y_pred_log = test_time_augmentation(model, X_test, config, device)
     else:
         # Standard prediction
         with torch.no_grad():
@@ -753,44 +866,26 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
                 outputs = model(batch)
                 predictions.append(outputs.cpu().numpy())
             
-            y_pred = np.concatenate(predictions)
+            y_pred_log = np.concatenate(predictions)
     
-    # Handle NaN values
-    valid_mask = ~(np.isnan(y_test) | np.isnan(y_pred))
-    if not np.all(valid_mask):
-        print(f"WARNING: Found {np.sum(~valid_mask)} NaN values. These will be excluded from metrics.")
-        
-        # Use only valid values for metric calculation
-        y_test_valid = y_test[valid_mask]
-        y_pred_valid = y_pred[valid_mask]
-    else:
-        y_test_valid = y_test
-        y_pred_valid = y_pred
+    # Calculate metrics in both scales
+    metrics_log, metrics_original = calculate_dual_metrics(y_test, y_pred_log, transform_type)
     
-    # Calculate metrics
-    metrics = {}
+    # Convert to original scale for results DataFrame
+    y_test_original = inverse_transform_biomass(y_test, transform_type)
+    y_pred_original = inverse_transform_biomass(y_pred_log, transform_type)
     
-    # RMSE
-    rmse = np.sqrt(mean_squared_error(y_test_valid, y_pred_valid))
-    metrics['rmse'] = rmse
+    # Handle NaN values for DataFrame
+    valid_mask = ~(np.isnan(y_test) | np.isnan(y_pred_log))
     
-    # R²
-    r2 = r2_score(y_test_valid, y_pred_valid)
-    metrics['r2'] = r2
-    
-    # MAE
-    mae = mean_absolute_error(y_test_valid, y_pred_valid)
-    metrics['mae'] = mae
-    
-    # Spearman correlation
-    spearman, _ = spearmanr(y_test_valid, y_pred_valid)
-    metrics['spearman'] = spearman
-    
-    # Create results dataframe
+    # Create results dataframe with both scales
     results_df = pd.DataFrame({
-        'y_true': y_test,
-        'y_pred': y_pred,
-        'residual': np.where(valid_mask, y_pred - y_test, np.nan),
+        'y_true_log': y_test,
+        'y_pred_log': y_pred_log,
+        'y_true_original': y_test_original,
+        'y_pred_original': y_pred_original,
+        'residual_log': np.where(valid_mask, y_pred_log - y_test, np.nan),
+        'residual_original': np.where(valid_mask, y_pred_original - y_test_original, np.nan),
         'source': sources_test,
         'valid': valid_mask
     })
@@ -799,30 +894,53 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
     results_df['x_coord'] = [coord[0] for coord in coordinates_test]
     results_df['y_coord'] = [coord[1] for coord in coordinates_test]
     
-    # Print metrics
-    print("\nTest Metrics:")
-    print(f"RMSE: {rmse:.4f}")
-    print(f"R²: {r2:.4f}")
-    print(f"MAE: {mae:.4f}")
-    print(f"Spearman correlation: {spearman:.4f}")
+    # Print metrics for both scales
+    print(f"\n📊 Test Metrics (Log Scale - Training Scale):")
+    print(f"RMSE: {metrics_log['rmse']:.4f}")
+    print(f"R²: {metrics_log['r2']:.4f}")
+    print(f"MAE: {metrics_log['mae']:.4f}")
+    print(f"Spearman: {metrics_log['spearman']:.4f}")
+    
+    print(f"\n🌳 Test Metrics (Original Scale - Biomass in Mg/ha):")
+    print(f"RMSE: {metrics_original['rmse']:.2f} Mg/ha")
+    print(f"R²: {metrics_original['r2']:.4f}")
+    print(f"MAE: {metrics_original['mae']:.2f} Mg/ha")
+    print(f"Spearman: {metrics_original['spearman']:.4f}")
+    print(f"Mean True Biomass: {metrics_original['mean_true']:.1f} Mg/ha")
+    print(f"Mean Predicted Biomass: {metrics_original['mean_pred']:.1f} Mg/ha")
+    print(f"Biomass Range: {metrics_original['min_true']:.1f} - {metrics_original['max_true']:.1f} Mg/ha")
     
     # Analyze by site if multiple sites present
     if len(np.unique(sources_test)) > 1:
-        print("\nMetrics by site:")
+        print("\n📍 Metrics by Site (Original Scale - Mg/ha):")
         for site in np.unique(sources_test):
             site_mask = (sources_test == site) & valid_mask
             if np.sum(site_mask) > 0:
-                site_rmse = np.sqrt(mean_squared_error(y_test[site_mask], y_pred[site_mask]))
-                site_r2 = r2_score(y_test[site_mask], y_pred[site_mask])
-                site_mae = mean_absolute_error(y_test[site_mask], y_pred[site_mask])
-                print(f"  Site {site}: RMSE={site_rmse:.4f}, R²={site_r2:.4f}, MAE={site_mae:.4f}, n={np.sum(site_mask)}")
+                site_y_true = y_test_original[site_mask]
+                site_y_pred = y_pred_original[site_mask]
                 
-                # Add site-specific metrics
-                metrics[f'site_{site}_rmse'] = site_rmse
-                metrics[f'site_{site}_r2'] = site_r2
-                metrics[f'site_{site}_mae'] = site_mae
+                site_rmse = np.sqrt(mean_squared_error(site_y_true, site_y_pred))
+                site_r2 = r2_score(site_y_true, site_y_pred)
+                site_mae = mean_absolute_error(site_y_true, site_y_pred)
+                site_mean_true = np.mean(site_y_true)
+                
+                print(f"  Site {site}: RMSE={site_rmse:.1f} Mg/ha, R²={site_r2:.3f}, "
+                      f"MAE={site_mae:.1f} Mg/ha, Mean={site_mean_true:.1f} Mg/ha, n={np.sum(site_mask)}")
+                
+                # Add site-specific metrics (original scale)
+                metrics_original[f'site_{site}_rmse'] = site_rmse
+                metrics_original[f'site_{site}_r2'] = site_r2
+                metrics_original[f'site_{site}_mae'] = site_mae
+                metrics_original[f'site_{site}_mean_true'] = site_mean_true
     
-    return results_df, metrics
+    # Combine metrics for return
+    combined_metrics = {
+        'log_scale': metrics_log,
+        'original_scale': metrics_original,
+        'transform_type': transform_type
+    }
+    
+    return results_df, combined_metrics
 
 
 # ======================================================================
@@ -908,10 +1026,10 @@ class HybridSpatialCV:
             self.config, self.device
         )
         
-        # Evaluate model
+        # Evaluate model with proper inverse transformation
         results_df, metrics = evaluate_model(
             trained_model, X_test, y_test, coords_test, sources_test,
-            self.config, self.device
+            self.config, self.device, data.get('preprocess_config', {})
         )
         
         return trained_model, results_df, metrics, history
@@ -953,24 +1071,141 @@ class HybridSpatialCV:
             fold_histories.append(history)
         
         # Calculate overall metrics
-        print("\nHybrid CV Summary:")
-        rmse_values = [m['rmse'] for m in fold_metrics]
-        r2_values = [m['r2'] for m in fold_metrics]
-        mae_values = [m['mae'] for m in fold_metrics]
-        spearman_values = [m['spearman'] for m in fold_metrics]
+        print("\n" + "="*60)
+        print("🏆 HYBRID CV SUMMARY")
+        print("="*60)
         
-        print(f"RMSE: {np.mean(rmse_values):.4f} ± {np.std(rmse_values):.4f}")
-        print(f"R²: {np.mean(r2_values):.4f} ± {np.std(r2_values):.4f}")
-        print(f"MAE: {np.mean(mae_values):.4f} ± {np.std(mae_values):.4f}")
-        print(f"Spearman: {np.mean(spearman_values):.4f} ± {np.std(spearman_values):.4f}")
+        # Extract metrics for both scales
+        log_metrics = [m['log_scale'] for m in fold_metrics]
+        original_metrics = [m['original_scale'] for m in fold_metrics]
+        
+        # Log scale summary
+        log_rmse = [m['rmse'] for m in log_metrics]
+        log_r2 = [m['r2'] for m in log_metrics]
+        log_mae = [m['mae'] for m in log_metrics]
+        log_spearman = [m['spearman'] for m in log_metrics]
+        
+        print("📊 Log Scale (Training Scale) Summary:")
+        print(f"RMSE: {np.mean(log_rmse):.4f} ± {np.std(log_rmse):.4f}")
+        print(f"R²: {np.mean(log_r2):.4f} ± {np.std(log_r2):.4f}")
+        print(f"MAE: {np.mean(log_mae):.4f} ± {np.std(log_mae):.4f}")
+        print(f"Spearman: {np.mean(log_spearman):.4f} ± {np.std(log_spearman):.4f}")
+        
+        # Original scale summary
+        orig_rmse = [m['rmse'] for m in original_metrics]
+        orig_r2 = [m['r2'] for m in original_metrics]
+        orig_mae = [m['mae'] for m in original_metrics]
+        orig_spearman = [m['spearman'] for m in original_metrics]
+        orig_mean_true = [m['mean_true'] for m in original_metrics]
+        
+        print(f"\n🌳 Original Scale (Biomass Mg/ha) Summary:")
+        print(f"RMSE: {np.mean(orig_rmse):.1f} ± {np.std(orig_rmse):.1f} Mg/ha")
+        print(f"R²: {np.mean(orig_r2):.4f} ± {np.std(orig_r2):.4f}")
+        print(f"MAE: {np.mean(orig_mae):.1f} ± {np.std(orig_mae):.1f} Mg/ha")
+        print(f"Spearman: {np.mean(orig_spearman):.4f} ± {np.std(orig_spearman):.4f}")
+        print(f"Mean True Biomass: {np.mean(orig_mean_true):.1f} Mg/ha")
+        
+        # Performance assessment
+        mean_rmse_pct = (np.mean(orig_rmse) / np.mean(orig_mean_true)) * 100
+        print(f"\n📈 Performance Assessment:")
+        print(f"Relative RMSE: {mean_rmse_pct:.1f}% of mean biomass")
+        
+        if np.mean(orig_r2) > 0.90:
+            performance = "🌟 Excellent"
+        elif np.mean(orig_r2) > 0.85:
+            performance = "✅ Very Good"
+        elif np.mean(orig_r2) > 0.75:
+            performance = "👍 Good"
+        else:
+            performance = "⚠️ Needs Improvement"
+        
+        print(f"Overall Performance: {performance}")
         
         # Save results
-        self._save_cv_results(fold_models, fold_results, fold_metrics, fold_histories)
+        self._save_cv_results(fold_models, fold_results, fold_metrics, fold_histories, data)
         
         return fold_models, fold_results, fold_metrics, fold_histories
     
-    def _save_cv_results(self, fold_models, fold_results, fold_metrics, fold_histories):
-        """Save cross-validation results."""
+    # def _save_cv_results(self, fold_models, fold_results, fold_metrics, fold_histories, data):
+    #     """Save cross-validation results with dual-scale metrics."""
+    #     # Create timestamp for results
+    #     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+    #     # Create result directory
+    #     result_dir = os.path.join(self.config.cv_dir, timestamp)
+    #     os.makedirs(result_dir, exist_ok=True)
+        
+    #     # Extract metrics for both scales
+    #     log_metrics = [m['log_scale'] for m in fold_metrics]
+    #     original_metrics = [m['original_scale'] for m in fold_metrics]
+        
+    #     # Calculate summary statistics
+    #     cv_summary = {
+    #         'log_scale_metrics': {
+    #             'fold_metrics': log_metrics,
+    #             'mean_rmse': float(np.mean([m['rmse'] for m in log_metrics])),
+    #             'std_rmse': float(np.std([m['rmse'] for m in log_metrics])),
+    #             'mean_r2': float(np.mean([m['r2'] for m in log_metrics])),
+    #             'std_r2': float(np.std([m['r2'] for m in log_metrics])),
+    #             'mean_mae': float(np.mean([m['mae'] for m in log_metrics])),
+    #             'std_mae': float(np.std([m['mae'] for m in log_metrics])),
+    #             'mean_spearman': float(np.mean([m['spearman'] for m in log_metrics])),
+    #             'std_spearman': float(np.std([m['spearman'] for m in log_metrics])),
+    #         },
+    #         'original_scale_metrics': {
+    #             'fold_metrics': original_metrics,
+    #             'mean_rmse': float(np.mean([m['rmse'] for m in original_metrics])),
+    #             'std_rmse': float(np.std([m['rmse'] for m in original_metrics])),
+    #             'mean_r2': float(np.mean([m['r2'] for m in original_metrics])),
+    #             'std_r2': float(np.std([m['r2'] for m in original_metrics])),
+    #             'mean_mae': float(np.mean([m['mae'] for m in original_metrics])),
+    #             'std_mae': float(np.std([m['mae'] for m in original_metrics])),
+    #             'mean_spearman': float(np.mean([m['spearman'] for m in original_metrics])),
+    #             'std_spearman': float(np.std([m['spearman'] for m in original_metrics])),
+    #             'mean_biomass': float(np.mean([m['mean_true'] for m in original_metrics])),
+    #             'units': 'Mg/ha'
+    #         },
+    #         'transform_info': {
+    #             'transform_type': fold_metrics[0].get('transform_type', 'unknown'),
+    #             'training_scale': 'log' if fold_metrics[0].get('transform_type') == 'log' else 'original',
+    #             'evaluation_scales': ['log', 'original']
+    #         }
+    #     }
+        
+    #     # Save CV summary
+    #     summary_path = os.path.join(result_dir, "cv_summary.json")
+    #     with open(summary_path, 'w') as f:
+    #         json.dump(cv_summary, f, indent=2)
+        
+    #     # Save fold results
+    #     for i, results in enumerate(fold_results):
+    #         results_path = os.path.join(result_dir, f"fold_{i+1}_results.csv")
+    #         results.to_csv(results_path, index=False)
+        
+    #     # Save fold models
+    #     for i, model in enumerate(fold_models):
+    #         model_path = os.path.join(result_dir, f"fold_{i+1}_model.pt")
+    #         torch.save(model.state_dict(), model_path)
+        
+    #     # Save config
+    #     config_dict = self.config.to_dict()
+    #     config_path = os.path.join(result_dir, "config.json")
+    #     with open(config_path, 'w') as f:
+    #         json.dump(config_dict, f, indent=2, default=str)
+        
+    #     # Save preprocessing info
+    #     if 'preprocess_config' in data:
+    #         preprocess_path = os.path.join(result_dir, "preprocessing_info.json")
+    #         with open(preprocess_path, 'w') as f:
+    #             json.dump(data['preprocess_config'], f, indent=2)
+        
+    #     # Create visualizations
+    #     visualize_cv_results(fold_results, fold_metrics, fold_histories, result_dir)
+        
+    #     print(f"\n💾 Hybrid CV complete. Results saved to {result_dir}")
+    #     print(f"📊 Check cv_summary.json for detailed metrics in both scales")
+    def _save_cv_results(self, fold_models, fold_results, fold_metrics, fold_histories, data):
+        """Save cross-validation results with dual-scale metrics."""
         # Create timestamp for results
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -978,28 +1213,47 @@ class HybridSpatialCV:
         result_dir = os.path.join(self.config.cv_dir, timestamp)
         os.makedirs(result_dir, exist_ok=True)
         
-        # Calculate summary statistics
-        rmse_values = [m['rmse'] for m in fold_metrics]
-        r2_values = [m['r2'] for m in fold_metrics]
-        mae_values = [m['mae'] for m in fold_metrics]
-        spearman_values = [m['spearman'] for m in fold_metrics]
+        # Extract metrics for both scales
+        log_metrics = [m['log_scale'] for m in fold_metrics]
+        original_metrics = [m['original_scale'] for m in fold_metrics]
         
+        # Calculate summary statistics
         cv_summary = {
-            'fold_metrics': fold_metrics,
-            'mean_rmse': float(np.mean(rmse_values)),
-            'std_rmse': float(np.std(rmse_values)),
-            'mean_r2': float(np.mean(r2_values)),
-            'std_r2': float(np.std(r2_values)),
-            'mean_mae': float(np.mean(mae_values)),
-            'std_mae': float(np.std(mae_values)),
-            'mean_spearman': float(np.mean(spearman_values)),
-            'std_spearman': float(np.std(spearman_values)),
+            'log_scale_metrics': {
+                'fold_metrics': log_metrics,
+                'mean_rmse': float(np.mean([m['rmse'] for m in log_metrics])),
+                'std_rmse': float(np.std([m['rmse'] for m in log_metrics])),
+                'mean_r2': float(np.mean([m['r2'] for m in log_metrics])),
+                'std_r2': float(np.std([m['r2'] for m in log_metrics])),
+                'mean_mae': float(np.mean([m['mae'] for m in log_metrics])),
+                'std_mae': float(np.std([m['mae'] for m in log_metrics])),
+                'mean_spearman': float(np.mean([m['spearman'] for m in log_metrics])),
+                'std_spearman': float(np.std([m['spearman'] for m in log_metrics])),
+            },
+            'original_scale_metrics': {
+                'fold_metrics': original_metrics,
+                'mean_rmse': float(np.mean([m['rmse'] for m in original_metrics])),
+                'std_rmse': float(np.std([m['rmse'] for m in original_metrics])),
+                'mean_r2': float(np.mean([m['r2'] for m in original_metrics])),
+                'std_r2': float(np.std([m['r2'] for m in original_metrics])),
+                'mean_mae': float(np.mean([m['mae'] for m in original_metrics])),
+                'std_mae': float(np.std([m['mae'] for m in original_metrics])),
+                'mean_spearman': float(np.mean([m['spearman'] for m in original_metrics])),
+                'std_spearman': float(np.std([m['spearman'] for m in original_metrics])),
+                'mean_biomass': float(np.mean([m['mean_true'] for m in original_metrics])),
+                'units': 'Mg/ha'
+            },
+            'transform_info': {
+                'transform_type': fold_metrics[0].get('transform_type', 'unknown'),
+                'training_scale': 'log' if fold_metrics[0].get('transform_type') == 'log' else 'original',
+                'evaluation_scales': ['log', 'original']
+            }
         }
         
-        # Save CV summary
+        # Save CV summary using the NumpyEncoder
         summary_path = os.path.join(result_dir, "cv_summary.json")
         with open(summary_path, 'w') as f:
-            json.dump(cv_summary, f, indent=2)
+            json.dump(cv_summary, f, cls=NumpyEncoder, indent=2)
         
         # Save fold results
         for i, results in enumerate(fold_results):
@@ -1011,16 +1265,23 @@ class HybridSpatialCV:
             model_path = os.path.join(result_dir, f"fold_{i+1}_model.pt")
             torch.save(model.state_dict(), model_path)
         
-        # Save config
+        # Save config using the NumpyEncoder
         config_dict = self.config.to_dict()
         config_path = os.path.join(result_dir, "config.json")
         with open(config_path, 'w') as f:
-            json.dump(config_dict, f, indent=2, default=str)
+            json.dump(config_dict, f, cls=NumpyEncoder, indent=2)
+        
+        # Save preprocessing info using the NumpyEncoder
+        if 'preprocess_config' in data:
+            preprocess_path = os.path.join(result_dir, "preprocessing_info.json")
+            with open(preprocess_path, 'w') as f:
+                json.dump(data['preprocess_config'], f, cls=NumpyEncoder, indent=2)
         
         # Create visualizations
         visualize_cv_results(fold_results, fold_metrics, fold_histories, result_dir)
         
-        print(f"\nHybrid CV complete. Results saved to {result_dir}")
+        print(f"\n💾 Hybrid CV complete. Results saved to {result_dir}")
+        print(f"📊 Check cv_summary.json for detailed metrics in both scales")
 
 
 def main():
