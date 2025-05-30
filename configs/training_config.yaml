@@ -1,0 +1,46 @@
+# Training Configuration for Biomass Prediction
+
+training:
+  # Data paths
+  preprocessed_dir: "data/processed"
+  results_dir: "results/hybrid_results"
+  visualization_dir: "results/visualizations"
+  cv_dir: "results/cv_results"
+  
+  # Cross-validation settings
+  n_folds: 5                      # Number of CV folds
+  spatial_buffer: 20              # Buffer distance between train/test
+  min_site_samples: 10            # Minimum samples for site splitting
+  
+  # Model configuration
+  model_type: "cnn_coordinate"    # Model architecture
+  
+  # Feature engineering
+  add_derived_features: true      # Add vegetation indices (NDVI, EVI, etc.)
+  standardize_features: true      # Standardize input features
+  
+  # Loss function
+  loss_function: "huber"          # Options: "mse", "huber", "spatial"
+  huber_delta: 1.0                # Delta parameter for Huber loss
+  spatial_loss_weight: 0.2        # Weight for spatial loss component
+  
+  # Training parameters
+  batch_size: 16                  # Training batch size
+  num_epochs: 100                 # Maximum training epochs
+  base_learning_rate: 0.001       # Initial learning rate
+  weight_decay: 0.005             # L2 regularization
+  early_stopping_patience: 20     # Early stopping patience
+  
+  # Data augmentation
+  use_geometric_aug: true         # Use geometric augmentations
+  use_spectral_aug: true          # Use spectral augmentations
+  aug_probability: 0.7            # Augmentation probability
+  
+  # Advanced sampling
+  use_hard_negative_mining: true  # Focus on difficult samples
+  hard_negative_start_epoch: 20   # Start hard negative mining after epoch
+  oversampling_factor: 2.0        # Oversampling factor for hard negatives
+  
+  # Test-time augmentation
+  use_test_time_augmentation: true # Apply TTA during evaluation
+  tta_samples: 3                   # Number of TTA samples
