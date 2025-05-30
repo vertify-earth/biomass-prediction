@@ -11,6 +11,16 @@
 
 This repository provides a comprehensive machine learning pipeline for estimating above-ground biomass (AGB) using satellite remote sensing data. It emphasizes spatial-awareness in data preprocessing and model training, employing a hybrid site-spatial cross-validation strategy for robust model evaluation and deep learning models (CNNs) for prediction.
 
+## What Is This Model For
+
+This model is trainined to predict above-ground biomass (AGB) in tropical and subtropical forests using multi-source satellite imagery. Specifically:
+
+- **Prediction Unit**: Estimates biomass at 24×24 pixel patches (approximately 480×480m at 20m resolution)
+- **Output**: Biomass density in Mg/ha (megagrams per hectare)
+- **Input Data**: Processes multi-sensor data including Sentinel-1, Sentinel-2, Landsat-8, PALSAR, and DEM
+- **Application Scope**: Best suited for tropical and subtropical forest ecosystems in South/Southeast Asia
+- **Biomass Range**: Validated for forests with biomass between ~40-400 Mg/ha
+  
 ## Overview
 
 The pipeline is designed to handle multi-source satellite imagery and corresponding biomass data from various study sites. Key aspects include:
@@ -67,8 +77,18 @@ The model was trained on data from four distinct forest sites in India and Thail
 
 
 
-The training data is sourced from the study: Rodda, S.R., Fararoda, R., Gopalakrishnan, R. et al. LiDAR-based reference aboveground biomass maps for tropical forests of South Asia and Central Africa. Sci Data 11, 334 (2024). [https://www.nature.com/articles/s41597-024-03162-x](https://doi.org/10.1038/s41597-024-03162-x)
+The AGB ground data  is sourced from the study: Rodda, S.R., Fararoda, R., Gopalakrishnan, R. et al. LiDAR-based reference aboveground biomass maps for tropical forests of South Asia and Central Africa. Sci Data 11, 334 (2024). [https://www.nature.com/articles/s41597-024-03162-x](https://doi.org/10.1038/s41597-024-03162-x)
 
+### Satellite Data Used
+The model integrates data from multiple satellite sensors:
+- **Sentinel-1**: C-band SAR (VV, VH polarizations)
+- **Sentinel-2**: Multispectral 10-20m bands
+- **Landsat-8**: Optical bands
+- **PALSAR**: L-band SAR
+- **Digital Elevation Model**: Topographic information
+
+The input stack was generated in Google Earth Engine. You can find the script to generate the 59 band stack in the utils folder.
+  
 ## Features
 
 -   **Configurable Preprocessing**:
