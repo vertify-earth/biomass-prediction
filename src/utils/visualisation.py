@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Visualization utilities for biomass prediction results with dual-scale support.
+visualisation utilities for biomass prediction results with dual-scale support.
 
 Author: najahpokkiri
 Date: 2025-05-30
@@ -15,9 +15,9 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from scipy.stats import spearmanr
 
 
-def visualize_cv_results(fold_results, fold_metrics, fold_histories, output_dir):
-    """Create visualizations for CV results with dual-scale support."""
-    print("\nCreating visualizations...")
+def visualise_cv_results(fold_results, fold_metrics, fold_histories, output_dir):
+    """Create visualisations for CV results with dual-scale support."""
+    print("\nCreating visualisations...")
     
     # Detect if we have dual-scale metrics
     has_dual_scale = len(fold_metrics) > 0 and 'original_scale' in fold_metrics[0]
@@ -407,7 +407,7 @@ def visualize_cv_results(fold_results, fold_metrics, fold_histories, output_dir)
             plt.savefig(os.path.join(output_dir, site_perf_filename), dpi=300, bbox_inches='tight')
             plt.close()
     
-    print(f"📊 Visualizations saved to: {output_dir}")
+    print(f"📊 visualisations saved to: {output_dir}")
     if has_dual_scale:
         print("🔄 Created plots for both log scale (training) and original scale (interpretable)")
 
