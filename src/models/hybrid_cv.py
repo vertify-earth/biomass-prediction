@@ -6,8 +6,12 @@ This script implements a combined site and spatial approach for biomass predicti
 ensuring all sites are represented in training while respecting spatial autocorrelation.
 
 Author: najahpokkiri
-Date: 2025-05-28
+Date: 2025-05-31
 """
+
+import datetime
+from typing import List, Optional, Dict, Tuple
+import torch.nn as nn
 
 import os
 import sys
@@ -45,14 +49,12 @@ from .cnn_models import create_model
 from .loss_functions import create_loss_function
 
 from src.utils.data_utils import load_preprocessed_data
-
-from src.utils.visualization import visualize_cv_results
+from src.utils.visualisation import visualise_cv_results
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
 
 
-# Add after the imports
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
         import numpy as np
@@ -63,26 +65,44 @@ class NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
+class EnsembleModel(nn.Module):
+    """Ensemble model that combines predictions from multiple fold models."""
+    
+    def __init__(self, models, method='average'):
+        super(EnsembleModel, self).__init__()
+        self.models = nn.ModuleList(models)
+        self.method = method
+        
+    def forward(self, x):
+        """Forward pass through all models and combine predictions."""
+        predictions = []
+        
+        for model in self.models:
+            model.eval()
+            with torch.no_grad():
+                pred = model(x)
+                predictions.append(pred)
+        
+        # Stack predictions and combine
+        predictions = torch.stack(predictions)
+        
+        if self.method == 'average':
+            return torch.mean(predictions, dim=0)
+        elif self.method == 'weighted':
+            # Could implement weighted averaging here
+            return torch.mean(predictions, dim=0)
+        else:
+            return torch.mean(predictions, dim=0)
+
+
 # ======================================================================
 # BIOMASS TRANSFORMATION UTILITIES
 # ======================================================================
 
 def inverse_transform_biomass(y_transformed, transform_type="log", transform_params=None):
-    """
-    Convert transformed biomass values back to original scale.
-    
-    Args:
-        y_transformed: Transformed biomass values
-        transform_type: Type of transformation used ("log", "none")
-        transform_params: Additional parameters for transformation
-    
-    Returns:
-        y_original: Biomass values in original scale (e.g., Mg/ha)
-    """
+    """Convert transformed biomass values back to original scale."""
     if transform_type == "log":
-        # Inverse of log(biomass + 1) is exp(y) - 1
         y_original = np.exp(y_transformed) - 1
-        # Ensure non-negative values
         y_original = np.maximum(y_original, 0)
     elif transform_type == "none":
         y_original = y_transformed
@@ -94,16 +114,7 @@ def inverse_transform_biomass(y_transformed, transform_type="log", transform_par
 
 
 def detect_transform_type(preprocess_config):
-    """
-    Detect what transformation was used during preprocessing.
-    
-    Args:
-        preprocess_config: Preprocessing configuration dict
-    
-    Returns:
-        transform_type: String indicating transformation type
-        transform_params: Dict with transformation parameters
-    """
+    """Detect what transformation was used during preprocessing."""
     if preprocess_config.get('use_log_transform', False):
         return "log", {"base": "natural"}
     else:
@@ -111,18 +122,7 @@ def detect_transform_type(preprocess_config):
 
 
 def calculate_dual_metrics(y_true_log, y_pred_log, transform_type="log"):
-    """
-    Calculate metrics in both log and original scales.
-    
-    Args:
-        y_true_log: True values in log scale
-        y_pred_log: Predicted values in log scale
-        transform_type: Type of transformation used
-    
-    Returns:
-        metrics_log: Metrics calculated on log scale
-        metrics_original: Metrics calculated on original scale
-    """
+    """Calculate metrics in both log and original scales."""
     # Handle NaN values
     valid_mask = ~(np.isnan(y_true_log) | np.isnan(y_pred_log))
     y_true_log_valid = y_true_log[valid_mask]
@@ -173,42 +173,38 @@ def add_derived_features(X):
         return X
     
     # Assuming standardized band positions:
-    # Band 1: Blue
-    # Band 2: Green
-    # Band 3: Red
-    # Band 4: NIR
     blue_idx, green_idx, red_idx, nir_idx = 1, 2, 3, 4
     
     # Make a copy to avoid modifying original
     X_new = X.copy()
     
-    # Calculate NDVI: (NIR - Red) / (NIR + Red)
+    # Calculate NDVI
     ndvi = np.zeros((X.shape[0], 1, X.shape[2], X.shape[3]))
-    epsilon = 1e-8  # To avoid division by zero
+    epsilon = 1e-8
     
     nir = X[:, nir_idx, :, :]
     red = X[:, red_idx, :, :]
     denominator = nir + red + epsilon
     ndvi[:, 0, :, :] = (nir - red) / denominator
     
-    # Calculate EVI: 2.5 * ((NIR - Red) / (NIR + 6*Red - 7.5*Blue + 1))
+    # Calculate EVI
     evi = np.zeros((X.shape[0], 1, X.shape[2], X.shape[3]))
     blue = X[:, blue_idx, :, :]
     denominator = nir + 6*red - 7.5*blue + 1 + epsilon
     evi[:, 0, :, :] = 2.5 * (nir - red) / denominator
     
-    # Calculate SAVI: ((NIR - Red) / (NIR + Red + 0.5)) * (1.5)
+    # Calculate SAVI
     savi = np.zeros((X.shape[0], 1, X.shape[2], X.shape[3]))
     denominator = nir + red + 0.5 + epsilon
     savi[:, 0, :, :] = ((nir - red) / denominator) * 1.5
     
-    # Calculate GNDVI: (NIR - Green) / (NIR + Green)
+    # Calculate GNDVI
     gndvi = np.zeros((X.shape[0], 1, X.shape[2], X.shape[3]))
     green = X[:, green_idx, :, :]
     denominator = nir + green + epsilon
     gndvi[:, 0, :, :] = (nir - green) / denominator
     
-    # Calculate NDWI: (Green - NIR) / (Green + NIR)
+    # Calculate NDWI
     ndwi = np.zeros((X.shape[0], 1, X.shape[2], X.shape[3]))
     denominator = green + nir + epsilon
     ndwi[:, 0, :, :] = (green - nir) / denominator
@@ -249,20 +245,20 @@ def standardize_features(X_train, X_val=None, X_test=None):
         X_train_std[:, b, :, :] = ((X_train[:, b, :, :] - band_mean) / band_std)
         
         # Standardize validation data if provided
-        if X_val is not None:
+        if X_val is not None and X_val_std is not None:
             X_val_std[:, b, :, :] = ((X_val[:, b, :, :] - band_mean) / band_std)
         
         # Standardize test data if provided
-        if X_test is not None:
+        if X_test is not None and X_test_std is not None:
             X_test_std[:, b, :, :] = ((X_test[:, b, :, :] - band_mean) / band_std)
     
     # Replace any NaN values with 0
     X_train_std = np.nan_to_num(X_train_std, nan=0.0)
     
-    if X_val is not None:
+    if X_val is not None and X_val_std is not None:
         X_val_std = np.nan_to_num(X_val_std, nan=0.0)
     
-    if X_test is not None:
+    if X_test is not None and X_test_std is not None:
         X_test_std = np.nan_to_num(X_test_std, nan=0.0)
     
     return X_train_std, X_val_std, X_test_std
@@ -284,14 +280,13 @@ def create_data_augmentation(config):
     if config.use_geometric_aug:
         print("  - Using geometric augmentation (flips, rotations)")
         
-        # Custom transforms that work with 3D tensors (C, H, W)
         class RandomHorizontalFlip:
             def __init__(self, p=0.5):
                 self.p = p
                 
             def __call__(self, x):
                 if torch.rand(1) < self.p:
-                    return torch.flip(x, [1])  # Flip height dimension (dim 1 for 3D tensor)
+                    return torch.flip(x, [1])
                 return x
         
         class RandomVerticalFlip:
@@ -300,7 +295,7 @@ def create_data_augmentation(config):
                 
             def __call__(self, x):
                 if torch.rand(1) < self.p:
-                    return torch.flip(x, [2])  # Flip width dimension (dim 2 for 3D tensor)
+                    return torch.flip(x, [2])
                 return x
         
         class RandomRotation90:
@@ -309,8 +304,8 @@ def create_data_augmentation(config):
                 
             def __call__(self, x):
                 if torch.rand(1) < self.p:
-                    k = torch.randint(1, 4, (1,)).item()  # 1, 2, or 3 for 90, 180, 270 degrees
-                    return torch.rot90(x, k, [1, 2])  # For 3D tensor, rotate dims 1 & 2
+                    k = int(torch.randint(1, 4, (1,)).item())
+                    return torch.rot90(x, k, [1, 2])
                 return x
         
         transforms_list.extend([
@@ -323,7 +318,6 @@ def create_data_augmentation(config):
     if config.use_spectral_aug:
         print("  - Using spectral augmentation (band jittering)")
         
-        # Custom transform for multi-band spectral augmentation
         class SpectralJitter:
             def __init__(self, p=0.5, brightness_factor=0.1, contrast_factor=0.1):
                 self.p = p
@@ -332,21 +326,17 @@ def create_data_augmentation(config):
                 
             def __call__(self, x):
                 if torch.rand(1) < self.p:
-                    # Select random bands to modify (1-5 bands)
-                    num_bands = x.shape[0]  # First dimension is channels for 3D tensor
+                    num_bands = x.shape[0]
                     num_to_modify = torch.randint(1, min(6, max(2, num_bands // 3)), (1,)).item()
                     bands_to_modify = torch.randperm(num_bands)[:num_to_modify]
                     
-                    # Make a copy
                     x_aug = x.clone()
                     
                     for band_idx in bands_to_modify:
-                        # Random brightness adjustment
                         if torch.rand(1) < 0.5:
                             brightness_change = 1.0 + (torch.rand(1) * 2 - 1) * self.brightness_factor
                             x_aug[band_idx] = x_aug[band_idx] * brightness_change
                         
-                        # Random contrast adjustment
                         if torch.rand(1) < 0.5:
                             contrast_change = 1.0 + (torch.rand(1) * 2 - 1) * self.contrast_factor
                             mean = torch.mean(x_aug[band_idx])
@@ -357,11 +347,9 @@ def create_data_augmentation(config):
         
         transforms_list.append(SpectralJitter(p=config.aug_probability))
     
-    # Print summary
     print(f"  - Augmentation probability: {config.aug_probability}")
     print(f"  - Total transformations: {len(transforms_list)}")
     
-    # Compose the transforms
     class SequentialTransforms:
         def __init__(self, transforms):
             self.transforms = transforms
@@ -398,29 +386,22 @@ class HardNegativeMiningDataset(Dataset):
         self.model = model
         self.device = device
         
-        # Skip if model is not provided
         if model is None:
             self.has_errors = False
             return
         
-        # Set model to evaluation mode
         model.eval()
         
-        # Calculate errors for each sample
         errors = []
         with torch.no_grad():
             for i in range(len(self.X)):
                 x = self.X[i:i+1].to(device)
                 y_true = self.y[i].item()
                 
-                # Forward pass
                 y_pred = model(x).item()
-                
-                # Calculate error
                 error = abs(y_pred - y_true)
                 errors.append(error)
         
-        # Update errors tensor
         self.errors = torch.tensor(errors)
         self.has_errors = True
     
@@ -432,11 +413,9 @@ class HardNegativeMiningDataset(Dataset):
         y = self.y[idx]
         coords = self.coordinates[idx]
         
-        # Apply augmentations if available
         if self.transforms:
             x = self.transforms(x)
         
-        # Include error if available
         if self.has_errors:
             return x, y, coords, self.errors[idx]
         
@@ -450,35 +429,27 @@ def create_hard_negative_sampler(dataset, config):
     
     print("\nCreating hard negative mining sampler:")
     
-    # Calculate weights based on errors
     errors = dataset.errors.numpy()
     
-    # Scale errors to [0,1] for numerical stability
     if np.max(errors) > np.min(errors):
         weights = (errors - np.min(errors)) / (np.max(errors) - np.min(errors))
     else:
         weights = np.ones_like(errors)
     
-    # Add small constant to ensure all samples get some weight
     weights = weights + 0.1
-    
-    # Square weights to emphasize harder examples
     weights = weights ** 2
     
-    # Display error distribution
     print("  - Error distribution:")
     percentiles = [0, 25, 50, 75, 100]
     for p in percentiles:
         print(f"    {p}th percentile: {np.percentile(errors, p):.4f}")
     
-    # Normalize weights to sum to 1
     weights = weights / weights.sum()
     
-    # Create sampler
     num_samples = int(len(weights) * config.oversampling_factor)
     print(f"  - Using {num_samples} samples with hard negative mining")
     
-    return WeightedRandomSampler(torch.from_numpy(weights), num_samples=num_samples)
+    return WeightedRandomSampler(weights.tolist(), num_samples=num_samples)
 
 
 # ======================================================================
@@ -493,60 +464,43 @@ def create_hybrid_site_spatial_split(coordinates, sources, config):
     n_sites = len(unique_sites)
     print(f"Found {n_sites} unique sites")
     
-    # Create folds list
     folds = []
     
-    # Set minimum required samples for each split
-    min_train = 10  # Absolute minimum for training
-    min_val = 5     # Absolute minimum for validation
-    min_test = 5    # Absolute minimum for testing
+    min_train = 10
+    min_val = 5
+    min_test = 5
     
-    # Create a fixed number of folds
     for fold_idx in range(config.n_folds):
-        # Initialize masks for this fold
         train_mask = np.zeros(len(coordinates), dtype=bool)
         val_mask = np.zeros(len(coordinates), dtype=bool)
         test_mask = np.zeros(len(coordinates), dtype=bool)
         
-        # Process each site separately
         for site in unique_sites:
-            # Get indices for this site
             site_indices = np.where(sources == site)[0]
             n_site_samples = len(site_indices)
             
-            # For small sites, just add to training (skip splitting)
             if n_site_samples < (min_train + min_val + min_test):
                 print(f"  Site {site} has only {n_site_samples} samples - adding all to training")
                 train_mask[site_indices] = True
                 continue
                 
-            # Get coordinates for this site
             site_coords = np.array([coordinates[i] for i in site_indices])
             
-            # Use spatial clustering to ensure test samples are spatially coherent
-            # Create more clusters than we need
             n_clusters = min(10, max(3, n_site_samples // 20))
-            
-            # Make sure we don't create too many clusters for small sites
             n_clusters = min(n_clusters, n_site_samples // (min_test * 2))
-            n_clusters = max(2, n_clusters)  # At least 2 clusters
+            n_clusters = max(2, n_clusters)
             
             kmeans = KMeans(n_clusters=n_clusters, random_state=fold_idx + 42)
             clusters = kmeans.fit_predict(site_coords)
             
-            # For this fold, select clusters that will go to test
-            # Rotate which clusters based on fold index
             cluster_indices = np.arange(n_clusters)
             np.random.RandomState(fold_idx + 42).shuffle(cluster_indices)
             
-            # Try different test cluster configurations until we find one that works
             valid_split = False
             for test_size_fraction in [0.2, 0.3, 0.4, 0.15, 0.25]:
-                # Calculate how many clusters to assign to test
                 n_test_clusters = max(1, int(round(n_clusters * test_size_fraction)))
                 test_clusters = cluster_indices[:n_test_clusters]
                 
-                # Assign samples to appropriate splits
                 site_test_indices = []
                 site_train_val_indices = []
                 
@@ -556,49 +510,37 @@ def create_hybrid_site_spatial_split(coordinates, sources, config):
                     else:
                         site_train_val_indices.append(site_indices[i])
                 
-                # Check if we have enough test samples
                 if len(site_test_indices) < min_test:
                     continue
                     
-                # Apply spatial buffer between train and test (with safety check)
                 if config.spatial_buffer > 0 and len(site_test_indices) > 0:
-                    # Get test coordinates
                     test_coords = np.array([coordinates[i] for i in site_test_indices])
-                    
-                    # Build KD tree for test coordinates
                     test_tree = cKDTree(test_coords)
                     
-                    # Check each train/val point
                     filtered_train_val = []
                     for idx in site_train_val_indices:
                         point = coordinates[idx]
-                        # Find distance to nearest test point
                         dist, _ = test_tree.query(point, k=1)
                         if dist >= config.spatial_buffer:
                             filtered_train_val.append(idx)
                     
-                    # Only apply buffer if we'll have enough samples left
                     if len(filtered_train_val) >= (min_train + min_val):
                         site_train_val_indices = filtered_train_val
                 
-                # Check if we have enough train+val samples
                 if len(site_train_val_indices) < (min_train + min_val):
                     continue
                 
-                # Split remaining samples into train/val
                 np.random.RandomState(fold_idx + 42).shuffle(site_train_val_indices)
                 n_val = max(min_val, int(len(site_train_val_indices) * 0.2))
-                n_val = min(n_val, len(site_train_val_indices) - min_train)  # Ensure enough for training
+                n_val = min(n_val, len(site_train_val_indices) - min_train)
                 
                 site_val_indices = site_train_val_indices[:n_val]
                 site_train_indices = site_train_val_indices[n_val:]
                 
-                # Double-check we have enough samples in each split
                 if len(site_train_indices) >= min_train and len(site_val_indices) >= min_val:
                     valid_split = True
                     break
             
-            # If we couldn't find a valid split, use a simple ratio split with no spatial clustering
             if not valid_split:
                 print(f"  Warning: Couldn't create spatial clusters for Site {site}, using simple split")
                 np.random.RandomState(fold_idx + 42).shuffle(site_indices)
@@ -606,7 +548,7 @@ def create_hybrid_site_spatial_split(coordinates, sources, config):
                 n_val = max(min_val, int(len(site_indices) * 0.2))
                 n_train = len(site_indices) - n_test - n_val
                 
-                if n_train < min_train:  # Still not enough for a valid split
+                if n_train < min_train:
                     print(f"  Site {site} split problem - adding all to training")
                     train_mask[site_indices] = True
                     continue
@@ -615,19 +557,16 @@ def create_hybrid_site_spatial_split(coordinates, sources, config):
                 site_val_indices = site_indices[n_test:n_test+n_val]
                 site_train_indices = site_indices[n_test+n_val:]
             
-            # Update masks
             test_mask[site_test_indices] = True
             val_mask[site_val_indices] = True
             train_mask[site_train_indices] = True
             
             print(f"  Site {site}: Train={len(site_train_indices)}, Val={len(site_val_indices)}, Test={len(site_test_indices)}")
         
-        # Verify we have data in all splits before adding this fold
         if np.sum(train_mask) == 0 or np.sum(val_mask) == 0 or np.sum(test_mask) == 0:
             print(f"Warning: Fold {fold_idx+1} has an empty split, skipping")
             continue
             
-        # Add fold to list
         folds.append({
             'train_mask': train_mask,
             'val_mask': val_mask,
@@ -637,7 +576,6 @@ def create_hybrid_site_spatial_split(coordinates, sources, config):
         
         print(f"Fold {fold_idx+1}: Train={np.sum(train_mask)}, Val={np.sum(val_mask)}, Test={np.sum(test_mask)}")
     
-    # Make sure we have at least one fold
     if len(folds) == 0:
         raise ValueError("Could not create any valid folds with current settings. Try reducing min_site_samples or spatial_buffer.")
     
@@ -653,31 +591,24 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
     """Train the model with early stopping and learning rate scheduling."""
     print("\nTraining model...")
     
-    # Initialize tracking variables
     best_val_loss = float('inf')
     epochs_no_improve = 0
     best_model_state = None
     
-    # Lists to track metrics
     train_losses = []
     val_losses = []
     learning_rates = []
     
-    # Create scheduler
     scheduler = CosineAnnealingLR(optimizer, 
                                  T_max=config.num_epochs,
                                  eta_min=config.base_learning_rate / 10)
     
-    # Training loop
     for epoch in range(config.num_epochs):
-        # Training phase
         model.train()
         running_loss = 0.0
         
-        # Reset hard negative mining dataset if configured
         if isinstance(train_loader.dataset, HardNegativeMiningDataset) and epoch >= config.hard_negative_start_epoch:
             train_loader.dataset.update_errors(model, device)
-            # Re-create sampler based on updated errors
             if config.use_hard_negative_mining:
                 hard_negative_sampler = create_hard_negative_sampler(train_loader.dataset, config)
                 if hard_negative_sampler is not None:
@@ -687,45 +618,35 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
                         sampler=hard_negative_sampler
                     )
         
-        # Training batches
         batch_losses = []
         for batch in train_loader:
-            # Unpack batch
             if len(batch) == 4:
-                inputs, targets, coords, _ = batch  # With error info
+                inputs, targets, coords, _ = batch
             else:
-                inputs, targets, coords = batch     # Without error info
+                inputs, targets, coords = batch
             
-            # Move to device
             inputs, targets = inputs.to(device), targets.to(device)
             
-            # Zero the parameter gradients
             optimizer.zero_grad()
             
-            # Forward pass
             outputs = model(inputs)
             
-            # Compute loss
             if isinstance(criterion, SpatialLoss):
-                # For spatial loss, include coordinates
                 batch_coords = torch.tensor(coords, dtype=torch.float32).to(device)
                 loss = criterion(outputs, targets, batch_coords)
             else:
                 loss = criterion(outputs, targets)
             
-            # Backward pass and optimize
             loss.backward()
             optimizer.step()
             
-            # Track statistics
             batch_losses.append(loss.item())
             running_loss += loss.item() * inputs.size(0)
         
-        # Calculate average training loss
-        epoch_train_loss = running_loss / len(train_loader.dataset)
+        dataset_size = len(train_loader.dataset) if hasattr(train_loader.dataset, '__len__') else len(train_loader) * config.batch_size
+        epoch_train_loss = running_loss / dataset_size
         train_losses.append(epoch_train_loss)
         
-        # Validation phase
         model.eval()
         running_val_loss = 0.0
         
@@ -733,28 +654,22 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             for inputs, targets, coords in val_loader:
                 inputs, targets = inputs.to(device), targets.to(device)
                 
-                # Forward pass
                 outputs = model(inputs)
-                
-                # Compute loss - use standard MSE for validation
                 loss = F.mse_loss(outputs, targets)
                 running_val_loss += loss.item() * inputs.size(0)
         
-        # Calculate average validation loss
-        epoch_val_loss = running_val_loss / len(val_loader.dataset)
+        val_dataset_size = len(val_loader.dataset) if hasattr(val_loader.dataset, '__len__') else len(val_loader) * config.batch_size
+        epoch_val_loss = running_val_loss / val_dataset_size
         val_losses.append(epoch_val_loss)
         
-        # Step learning rate scheduler
         scheduler.step()
         learning_rates.append(optimizer.param_groups[0]['lr'])
         
-        # Print metrics
         print(f"Epoch {epoch+1}/{config.num_epochs}, "
               f"Train Loss: {epoch_train_loss:.4f}, "
               f"Val Loss: {epoch_val_loss:.4f}, "
               f"LR: {optimizer.param_groups[0]['lr']:.6f}", end="")
         
-        # Check for improvement
         if epoch_val_loss < best_val_loss:
             best_val_loss = epoch_val_loss
             epochs_no_improve = 0
@@ -762,14 +677,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer,
             print(f"\n  → New best validation loss: {best_val_loss:.4f}")
         else:
             epochs_no_improve += 1
-            print("")  # Newline
+            print("")
                 
-        # Early stopping check
         if epochs_no_improve >= config.early_stopping_patience:
             print(f"Early stopping at epoch {epoch+1}")
             break
     
-    # Load best model
     if best_model_state:
         model.load_state_dict(best_model_state)
     
@@ -789,45 +702,35 @@ def test_time_augmentation(model, X_test, config, device):
     
     print("\nApplying test-time augmentation...")
     
-    # Create augmentation transforms
     transforms = create_data_augmentation(config)
     if transforms is None:
         return None
     
-    # Convert to tensor
     X_tensor = torch.FloatTensor(X_test)
     
-    # Set model to evaluation mode
     model.eval()
     
-    # Store predictions
     all_predictions = []
     
-    # Make predictions with multiple augmentations
     with torch.no_grad():
-        # Original prediction
         batch_size = 32
         for i in range(0, len(X_tensor), batch_size):
             batch = X_tensor[i:i+batch_size].to(device)
             outputs = model(batch)
             all_predictions.append(outputs.cpu())
         
-        # Augmented predictions
         for aug_idx in range(config.tta_samples):
             print(f"  - TTA iteration {aug_idx+1}/{config.tta_samples}")
             for i in range(0, len(X_tensor), batch_size):
                 batch = X_tensor[i:i+batch_size].clone()
                 
-                # Apply augmentation to each sample
                 for j in range(len(batch)):
                     batch[j] = transforms(batch[j])
                 
-                # Move to device and predict
                 batch = batch.to(device)
                 outputs = model(batch)
                 all_predictions.append(outputs.cpu())
     
-    # Combine predictions
     all_predictions = torch.cat(all_predictions).reshape(config.tta_samples + 1, len(X_test))
     y_pred = torch.mean(all_predictions, dim=0).numpy()
     
@@ -840,23 +743,18 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
     """Evaluate the model on test data with proper inverse transformation."""
     print("\nEvaluating model...")
     
-    # Detect transformation type
     transform_type = "none"
     if preprocess_config and preprocess_config.get('use_log_transform', False):
         transform_type = "log"
         print(f"  Detected log transformation - will convert results to original biomass scale")
     
-    # Convert test data to tensors
     X_test_tensor = torch.FloatTensor(X_test).to(device)
     
-    # Set model to evaluation mode
     model.eval()
     
-    # Make predictions - use test-time augmentation if configured
     if config and config.use_test_time_augmentation:
         y_pred_log = test_time_augmentation(model, X_test, config, device)
     else:
-        # Standard prediction
         with torch.no_grad():
             predictions = []
             batch_size = 32
@@ -876,15 +774,19 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
     y_pred_original = inverse_transform_biomass(y_pred_log, transform_type)
     
     # Handle NaN values for DataFrame
-    valid_mask = ~(np.isnan(y_test) | np.isnan(y_pred_log))
+    y_test_array = np.asarray(y_test) if y_test is not None else np.array([])
+    y_pred_array = np.asarray(y_pred_log) if y_pred_log is not None else np.array([])
+    
+    # Create valid mask
+    valid_mask = ~(np.isnan(y_test_array) | np.isnan(y_pred_array))
     
     # Create results dataframe with both scales
     results_df = pd.DataFrame({
-        'y_true_log': y_test,
-        'y_pred_log': y_pred_log,
+        'y_true_log': y_test_array,
+        'y_pred_log': y_pred_array,
         'y_true_original': y_test_original,
         'y_pred_original': y_pred_original,
-        'residual_log': np.where(valid_mask, y_pred_log - y_test, np.nan),
+        'residual_log': np.where(valid_mask, y_pred_array - y_test_array, np.nan),
         'residual_original': np.where(valid_mask, y_pred_original - y_test_original, np.nan),
         'source': sources_test,
         'valid': valid_mask
@@ -911,9 +813,10 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
     print(f"Biomass Range: {metrics_original['min_true']:.1f} - {metrics_original['max_true']:.1f} Mg/ha")
     
     # Analyze by site if multiple sites present
-    if len(np.unique(sources_test)) > 1:
-        print("\n📍 Metrics by Site (Original Scale - Mg/ha):")
-        for site in np.unique(sources_test):
+    unique_sites = np.unique(sources_test)
+    if len(unique_sites) > 1:
+        print(f"\n📍 Site-specific performance:")
+        for site in unique_sites:
             site_mask = (sources_test == site) & valid_mask
             if np.sum(site_mask) > 0:
                 site_y_true = y_test_original[site_mask]
@@ -950,11 +853,27 @@ def evaluate_model(model, X_test, y_test, coordinates_test, sources_test, config
 class HybridSpatialCV:
     """Main class for hybrid site-spatial cross-validation."""
     
-    def __init__(self, config: HybridCVConfig = None):
+    def __init__(self, config: Optional[HybridCVConfig] = None):
         """Initialize with configuration."""
         self.config = config or HybridCVConfig()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Override with config values
+        self.train_final_model = getattr(self.config, 'train_final_model', False)
+        self.create_ensemble = getattr(self.config, 'create_ensemble', True)
+        self.ensemble_method = getattr(self.config, 'ensemble_method', 'average')
+        self.final_model_epochs = getattr(self.config, 'final_model_epochs', 150)
+        self.save_fold_models = getattr(self.config, 'save_fold_models', True)
+        
+        self._create_directories()
         print(f"Using device: {self.device}")
+        print(f"Create ensemble: {self.create_ensemble}")
+        print(f"Ensemble method: {self.ensemble_method}")
+    
+    def _create_directories(self):
+        """Create output directories if they don't exist."""
+        os.makedirs(self.config.cv_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(self.config.cv_dir), exist_ok=True)
     
     def run_cv_fold(self, fold, data):
         """Run a single fold of spatial cross-validation."""
@@ -1007,8 +926,8 @@ class HybridSpatialCV:
         val_loader = DataLoader(val_dataset, batch_size=val_batch_size)
             
         # Create model
-        input_channels = X_train.shape[1]  # Number of channels
-        height, width = X_train.shape[2], X_train.shape[3]  # Spatial dimensions
+        input_channels = X_train.shape[1]
+        height, width = X_train.shape[2], X_train.shape[3]
         
         model = create_model(self.config.model_type, input_channels, height, width, self.device)
         
@@ -1033,7 +952,32 @@ class HybridSpatialCV:
         )
         
         return trained_model, results_df, metrics, history
-    
+
+    def create_ensemble_model(self, fold_models: List[torch.nn.Module], result_dir: str) -> EnsembleModel:
+        """Create an ensemble model from individual fold models."""
+        print("\n" + "=" * 60)
+        print("🔧 CREATING ENSEMBLE MODEL")
+        print("=" * 60)
+        
+        ensemble = EnsembleModel(fold_models, method=self.ensemble_method)
+        
+        # Save ensemble model in the same directory as CV results
+        ensemble_path = os.path.join(result_dir, "ensemble_model.pt")
+        torch.save({
+            'models': [model.state_dict() for model in fold_models],
+            'method': self.ensemble_method,
+            'model_type': self.config.model_type,
+            'num_models': len(fold_models),
+            'input_channels': fold_models[0].input_channels if hasattr(fold_models[0], 'input_channels') else None,
+            'created_timestamp': datetime.datetime.now().isoformat()
+        }, ensemble_path)
+        
+        print(f"✅ Ensemble model saved to: {ensemble_path}")
+        print(f"📊 Ensemble method: {self.ensemble_method}")
+        print(f"🔢 Number of models in ensemble: {len(fold_models)}")
+        
+        return ensemble
+
     def run_cross_validation(self, data=None):
         """Run complete hybrid site-spatial cross-validation."""
         print("\n" + "=" * 80)
@@ -1121,89 +1065,11 @@ class HybridSpatialCV:
         
         print(f"Overall Performance: {performance}")
         
-        # Save results
+        # Save results (this will also create ensemble if configured)
         self._save_cv_results(fold_models, fold_results, fold_metrics, fold_histories, data)
         
         return fold_models, fold_results, fold_metrics, fold_histories
-    
-    # def _save_cv_results(self, fold_models, fold_results, fold_metrics, fold_histories, data):
-    #     """Save cross-validation results with dual-scale metrics."""
-    #     # Create timestamp for results
-    #     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-    #     # Create result directory
-    #     result_dir = os.path.join(self.config.cv_dir, timestamp)
-    #     os.makedirs(result_dir, exist_ok=True)
-        
-    #     # Extract metrics for both scales
-    #     log_metrics = [m['log_scale'] for m in fold_metrics]
-    #     original_metrics = [m['original_scale'] for m in fold_metrics]
-        
-    #     # Calculate summary statistics
-    #     cv_summary = {
-    #         'log_scale_metrics': {
-    #             'fold_metrics': log_metrics,
-    #             'mean_rmse': float(np.mean([m['rmse'] for m in log_metrics])),
-    #             'std_rmse': float(np.std([m['rmse'] for m in log_metrics])),
-    #             'mean_r2': float(np.mean([m['r2'] for m in log_metrics])),
-    #             'std_r2': float(np.std([m['r2'] for m in log_metrics])),
-    #             'mean_mae': float(np.mean([m['mae'] for m in log_metrics])),
-    #             'std_mae': float(np.std([m['mae'] for m in log_metrics])),
-    #             'mean_spearman': float(np.mean([m['spearman'] for m in log_metrics])),
-    #             'std_spearman': float(np.std([m['spearman'] for m in log_metrics])),
-    #         },
-    #         'original_scale_metrics': {
-    #             'fold_metrics': original_metrics,
-    #             'mean_rmse': float(np.mean([m['rmse'] for m in original_metrics])),
-    #             'std_rmse': float(np.std([m['rmse'] for m in original_metrics])),
-    #             'mean_r2': float(np.mean([m['r2'] for m in original_metrics])),
-    #             'std_r2': float(np.std([m['r2'] for m in original_metrics])),
-    #             'mean_mae': float(np.mean([m['mae'] for m in original_metrics])),
-    #             'std_mae': float(np.std([m['mae'] for m in original_metrics])),
-    #             'mean_spearman': float(np.mean([m['spearman'] for m in original_metrics])),
-    #             'std_spearman': float(np.std([m['spearman'] for m in original_metrics])),
-    #             'mean_biomass': float(np.mean([m['mean_true'] for m in original_metrics])),
-    #             'units': 'Mg/ha'
-    #         },
-    #         'transform_info': {
-    #             'transform_type': fold_metrics[0].get('transform_type', 'unknown'),
-    #             'training_scale': 'log' if fold_metrics[0].get('transform_type') == 'log' else 'original',
-    #             'evaluation_scales': ['log', 'original']
-    #         }
-    #     }
-        
-    #     # Save CV summary
-    #     summary_path = os.path.join(result_dir, "cv_summary.json")
-    #     with open(summary_path, 'w') as f:
-    #         json.dump(cv_summary, f, indent=2)
-        
-    #     # Save fold results
-    #     for i, results in enumerate(fold_results):
-    #         results_path = os.path.join(result_dir, f"fold_{i+1}_results.csv")
-    #         results.to_csv(results_path, index=False)
-        
-    #     # Save fold models
-    #     for i, model in enumerate(fold_models):
-    #         model_path = os.path.join(result_dir, f"fold_{i+1}_model.pt")
-    #         torch.save(model.state_dict(), model_path)
-        
-    #     # Save config
-    #     config_dict = self.config.to_dict()
-    #     config_path = os.path.join(result_dir, "config.json")
-    #     with open(config_path, 'w') as f:
-    #         json.dump(config_dict, f, indent=2, default=str)
-        
-    #     # Save preprocessing info
-    #     if 'preprocess_config' in data:
-    #         preprocess_path = os.path.join(result_dir, "preprocessing_info.json")
-    #         with open(preprocess_path, 'w') as f:
-    #             json.dump(data['preprocess_config'], f, indent=2)
-        
-    #     # Create visualizations
-    #     visualize_cv_results(fold_results, fold_metrics, fold_histories, result_dir)
-        
-    #     print(f"\n💾 Hybrid CV complete. Results saved to {result_dir}")
-    #     print(f"📊 Check cv_summary.json for detailed metrics in both scales")
+
     def _save_cv_results(self, fold_models, fold_results, fold_metrics, fold_histories, data):
         """Save cross-validation results with dual-scale metrics."""
         # Create timestamp for results
@@ -1250,7 +1116,7 @@ class HybridSpatialCV:
             }
         }
         
-        # Save CV summary using the NumpyEncoder
+        # Save CV summary
         summary_path = os.path.join(result_dir, "cv_summary.json")
         with open(summary_path, 'w') as f:
             json.dump(cv_summary, f, cls=NumpyEncoder, indent=2)
@@ -1260,25 +1126,40 @@ class HybridSpatialCV:
             results_path = os.path.join(result_dir, f"fold_{i+1}_results.csv")
             results.to_csv(results_path, index=False)
         
-        # Save fold models
-        for i, model in enumerate(fold_models):
-            model_path = os.path.join(result_dir, f"fold_{i+1}_model.pt")
-            torch.save(model.state_dict(), model_path)
+        # Save fold models (if configured)
+        if self.save_fold_models:
+            for i, model in enumerate(fold_models):
+                model_path = os.path.join(result_dir, f"fold_{i+1}_model.pt")
+                torch.save(model.state_dict(), model_path)
         
-        # Save config using the NumpyEncoder
+        # Create ensemble model (if configured)
+        if self.create_ensemble:
+            print("\n🔧 Creating ensemble model...")
+            try:
+                ensemble_model = self.create_ensemble_model(fold_models, result_dir)
+                print("✅ Ensemble model created successfully!")
+            except Exception as e:
+                print(f"❌ Ensemble creation failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Save config
         config_dict = self.config.to_dict()
         config_path = os.path.join(result_dir, "config.json")
         with open(config_path, 'w') as f:
             json.dump(config_dict, f, cls=NumpyEncoder, indent=2)
         
-        # Save preprocessing info using the NumpyEncoder
+        # Save preprocessing info
         if 'preprocess_config' in data:
             preprocess_path = os.path.join(result_dir, "preprocessing_info.json")
             with open(preprocess_path, 'w') as f:
                 json.dump(data['preprocess_config'], f, cls=NumpyEncoder, indent=2)
         
         # Create visualizations
-        visualize_cv_results(fold_results, fold_metrics, fold_histories, result_dir)
+        print("\nCreating visualisations...")
+        visualise_cv_results(fold_results, fold_metrics, fold_histories, result_dir)
+        print(f"📊 visualisations saved to: {result_dir}")
+        print("🔄 Created plots for both log scale (training) and original scale (interpretable)")
         
         print(f"\n💾 Hybrid CV complete. Results saved to {result_dir}")
         print(f"📊 Check cv_summary.json for detailed metrics in both scales")
@@ -1294,8 +1175,9 @@ def main():
     
     # Load configuration
     if args.config:
-        # TODO: Implement YAML config loading
-        config = HybridCVConfig()
+        from ..utils.data_utils import load_yaml_config
+        config_dict = load_yaml_config(args.config)
+        config = HybridCVConfig.from_dict(config_dict.get('training', {}))
     else:
         config = HybridCVConfig()
     

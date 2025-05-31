@@ -386,7 +386,7 @@ from src.models.cnn_models import create_model
 # Load final model for inference
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 model = create_model('cnn_coordinate', input_channels=10, height=24, width=24, device=device)
-model.load_state_dict(torch.load('results/cv_results/final_model.pt', map_location=device))
+model.load_state_dict(torch.load('results/cv_results/ensemble_model.pt', map_location=device))
 model.eval()
 
 # Make predictions on new data

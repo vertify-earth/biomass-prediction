@@ -122,11 +122,11 @@ notebooks/
 # *.jpeg
 
 # Model files
-*.pt
-*.pth
-*.pkl
-*.pickle
-*.joblib
+# *.pt
+# *.pth
+# *.pkl
+# *.pickle
+# *.joblib
 
 # Logs
 *.log

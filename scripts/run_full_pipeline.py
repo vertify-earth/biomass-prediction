@@ -19,7 +19,7 @@ from src.preprocessing.config import SpatialAwarePreprocessingConfig
 from src.models.hybrid_cv import HybridSpatialCV
 from src.models.config import HybridCVConfig
 from src.utils.data_utils import load_yaml_config
-from src.utils.visualization import plot_data_distribution
+from src.utils.visualisation import plot_data_distribution
 
 
 def run_preprocessing(config_dict=None):

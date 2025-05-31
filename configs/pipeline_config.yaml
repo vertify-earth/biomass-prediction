@@ -30,7 +30,7 @@ training:
   aug_probability: 0.7
   base_learning_rate: 0.001
   batch_size: 16
-  create_ensemble: false
+  create_ensemble: true
   cv_dir: results/cv_results
   early_stopping_patience: 20
   ensemble_method: average
@@ -38,13 +38,13 @@ training:
   loss_function: huber
   model_type: cnn_coordinate
   n_folds: 5
-  num_epochs: 100
+  num_epochs: 150
   preprocessed_dir: data/processed
   results_dir: results/hybrid_results
   save_fold_models: true
   spatial_buffer: 20
   standardize_features: true
-  train_final_model: true
+  train_final_model: false
   use_geometric_aug: true
   use_hard_negative_mining: true
   use_spectral_aug: true
