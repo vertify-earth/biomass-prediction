@@ -15,11 +15,11 @@ This repository provides a comprehensive machine learning pipeline for estimatin
 
 This model is trainined to predict above-ground biomass (AGB) in tropical and subtropical forests using multi-source satellite imagery. Specifically:
 
-- **Prediction Unit**: Estimates biomass at 24×24 pixel patches (approximately 480×480m at 20m resolution)
+- **Prediction Unit**: Estimates biomass at 24×24 pixel patches (approximately 960×960m at 40m resolution)
 - **Output**: Biomass density in Mg/ha (megagrams per hectare)
 - **Input Data**: Processes multi-sensor data including Sentinel-1, Sentinel-2, Landsat-8, PALSAR, and DEM
 - **Application Scope**: Best suited for tropical and subtropical forest ecosystems in South/Southeast Asia
-- **Biomass Range**: Validated for forests with biomass between ~40-400 Mg/ha
+- **Biomass Range**: Validated for forests with biomass between ~40-460 Mg/ha
   
 ## Overview
 
