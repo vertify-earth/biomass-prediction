@@ -75,13 +75,18 @@ With an R² of 0.873 and relative RMSE of 13.3%, the model demonstrates **very g
 
 The model was trained on data from four distinct forest sites in India and Thailand, covering a wide range of biomass conditions. This diverse dataset helps ensure the model's robustness across different forest types and biomass densities.
 
-| Site | Area (km²) | Biomass Range (Mg/ha) | Mean ± Std Dev (Mg/ha) |
-|------|------------|----------------------|------------------------|
-| Yellapur | 312 | 47 to 322 | 215 ± 53 |
-| Betul | 105 | 7 to 128 | 93 ± 27 |
-| Achanakmar | 117 | 74 to 229 | 169 ± 28 |
-| Khaoyai | 47 | 179 to 436 to 339 | 275 ± 47 |
-| Uppangala | 21 | 244 to 436 | 337 ± 63 |
+
+
+
+| Site       | Location                    | Area (km²) | Biomass Range (Mg/ha) | Mean ± Std Dev (Mg/ha) | Forest / Terrain Type                  |
+| ---------- | --------------------------- | ---------- | --------------------- | ---------------------- | -------------------------------------- |
+| Yellapur   | Karnataka, India            | 312        | 47 to 322             | 215 ± 53               | Tropical semi-evergreen forest         |
+| Betul      | Madhya Pradesh, India       | 105        | 7 to 128              | 93 ± 27                | Dry deciduous forest                   |
+| Achanakmar | Chhattisgarh, India         | 117        | 74 to 229             | 169 ± 28               | Moist deciduous forest, hilly terrain  |
+| Khaoyai    | Nakhon Ratchasima, Thailand | 47         | 179 to 436            | 275 ± 47               | Tropical evergreen forest, mountainous |
+| Uppangala  | Karnataka, India            | 21         | 244 to 436            | 337 ± 63               | Tropical wet evergreen forest          |
+
+
 
 
 
