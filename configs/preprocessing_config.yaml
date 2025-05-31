@@ -1,63 +1,28 @@
-# Preprocessing Configuration for Biomass Prediction
-# Update the raster_pairs section with your actual file paths
-
-# preprocessing:
-#   # Input raster pairs - UPDATE THESE PATHS
-#   raster_pairs:
-#     - satellite_path: "data/raw/satellite/s1_s2_l8_palsar_ch_dem_yellapur_2020.tif"
-#       biomass_path: "data/raw/biomass/agbd_yellapur_reprojected_1.tif"
-#       site_name: "Site_1"
-#     - satellite_path: "data/raw/satellite/s1_s2_l8_palsar_ch_betul_2020_clipped.tif"
-#       biomass_path: "data/raw/biomass/01_Betul_AGB40_band1_onImgGrid.tif"
-#       site_name: "Site_2"
-#     - satellite_path: "data/raw/satellite/s1_s2_l8_palsar_ch_goa_achankumar_2020_clipped.tif"
-#       biomass_path: "data/raw/biomass/02_Achanakmar_AGB40_band1_onImgGrid.tif"
-#       site_name: "Site_3"
-#     - satellite_path: "data/raw/satellite/s1_s2_l8_palsar_ch_goa_khaoyai_2020_clipped.tif"
-#       biomass_path: "data/raw/biomass/05_Khaoyai_AGB40_band1_onImgGrid.tif"
-#       site_name: "Site_4"
-#     - satellite_path: "data/raw/satellite/s1_s2_l8_palsar_ch_goa_uppangala_2020_clipped.tif"
-#       biomass_path: "data/raw/biomass/04_Uppangala_AGB40_band1_onImgGrid.tif"
-#       site_name: "Site_5"
-
 preprocessing:
+  chip_size: 24
+  max_sat_nan_fraction: 0.3
+  min_val_samples: 60
+  min_valid_pixels: 0.7
+  output_dir: results/preprocessing
+  overlap: 0.1
+  processed_dir: data/processed
   raster_pairs:
-    - satellite_path: "/teamspace/studios/dl2/clean/data/s1_s2_l8_palsar_ch_dem_yellapur_2020.tif"
-      biomass_path: "/teamspace/studios/dl2/clean/data/agbd_yellapur_reprojected_1.tif"
-      site_name: "Yellapur"
-    - satellite_path: "/teamspace/studios/dl2/clean/data/s1_s2_l8_palsar_ch_betul_2020_clipped.tif"
-      biomass_path: "/teamspace/studios/dl2/clean/data/01_Betul_AGB40_band1_onImgGrid.tif"
-      site_name: "Betul"
-    - satellite_path: "/teamspace/studios/dl2/clean/data/s1_s2_l8_palsar_ch_goa_achankumar_2020_clipped.tif"
-      biomass_path: "/teamspace/studios/dl2/clean/data/02_Achanakmar_AGB40_band1_onImgGrid.tif"
-      site_name: "Achanakmar"
-    - satellite_path: "/teamspace/studios/dl2/clean/data/s1_s2_l8_palsar_ch_goa_khaoyai_2020_clipped.tif"
-      biomass_path: "/teamspace/studios/dl2/clean/data/05_Khaoyai_AGB40_band1_onImgGrid.tif"
-      site_name: "Khaoyai"
-    - satellite_path: "/teamspace/studios/dl2/clean/data/s1_s2_l8_palsar_ch_goa_uppangala_2020_clipped.tif"
-      biomass_path: "/teamspace/studios/dl2/clean/data/04_Uppangala_AGB40_band1_onImgGrid.tif"
-      site_name: "Uppangala"
-
-
-  
-  # Output directories
-  output_dir: "results/preprocessing"
-  processed_dir: "data/processed"
-  
-  # Chip extraction parameters
-  chip_size: 24           # Size of extracted chips (pixels)
-  overlap: 0.1            # Overlap between chips (fraction)
-  
-  # Data transformation
-  use_log_transform: true # Apply log transform to biomass data
-  
-  # Quality filtering
-  min_valid_pixels: 0.7   # Minimum fraction of valid pixels in chip
-  
-  # NaN handling
-  max_sat_nan_fraction: 0.3  # Maximum NaN fraction in satellite data
-  
-  # Data splitting
-  test_ratio: 0.2         # Fraction for testing
-  val_ratio: 0.15         # Fraction for validation  
-  min_val_samples: 60     # Minimum validation samples
+  raster_pairs:
+  - biomass_path: data/raw/biomass/yellapur_biomass.tif
+    satellite_path: data/raw/satellite/yellapur_satellite.tif
+    site_name: Yellapur
+  - biomass_path: data/raw/biomass/betul_biomass.tif
+    satellite_path: data/raw/satellite/betul_satellite.tif
+    site_name: Betul
+  - biomass_path: data/raw/biomass/achanakmar_biomass.tif
+    satellite_path: data/raw/satellite/achanakmar_satellite.tif
+    site_name: Achanakmar
+  - biomass_path: data/raw/biomass/khaoyai_biomass.tif
+    satellite_path: data/raw/satellite/khaoyai_satellite.tif
+    site_name: Khaoyai
+  - biomass_path: data/raw/biomass/uppangala_biomass.tif
+    satellite_path: data/raw/satellite/uppangala_satellite.tif
+    site_name: Uppangala
+  test_ratio: 0.2
+  use_log_transform: true
+  val_ratio: 0.15

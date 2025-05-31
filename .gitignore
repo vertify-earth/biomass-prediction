@@ -100,14 +100,14 @@ dmypy.json
 .pyre/
 
 # Data files
-data/raw/
-data/processed/
-*.tif
-*.tiff
-*.h5
-*.hdf5
-*.nc
-*.zarr
+# data/raw/
+# data/processed/
+# *.tif
+# *.tiff
+# *.h5
+# *.hdf5
+# *.nc
+# *.zarr
 
 notebooks/
 01_data_exploration.ipynb

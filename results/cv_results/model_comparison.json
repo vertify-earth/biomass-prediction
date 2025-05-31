@@ -1,0 +1,16 @@
+{
+  "cross_validation": {
+    "mean_rmse": 25.49976357795644,
+    "mean_r2": 0.8741222620010376,
+    "mean_mae": 18.615437698364257,
+    "std_rmse": 2.6153404111841674,
+    "std_r2": 0.020176573708933984,
+    "description": "Average performance across CV folds"
+  },
+  "final_model": {
+    "rmse": 17.605210902676923,
+    "r2": 0.9420233368873596,
+    "mae": 13.301017761230469,
+    "description": "Performance on entire dataset (training performance)"
+  }
+}
