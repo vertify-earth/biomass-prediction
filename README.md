@@ -38,23 +38,37 @@ Latest model evaluation results demonstrate strong predictive performance across
 
 ### Cross-Validation Summary (5-fold)
 
-<!-- **Log Scale (Training Scale):**
-- **RMSE**: 0.1339 ± 0.0252
-- **R²**: 0.8938 ± 0.0334
-- **MAE**: 0.1012 ± 0.0158
-- **Spearman Correlation**: 0.9393 ± 0.0141
+- **RMSE**: 25.5 ± 1.9 Mg/ha
+- **R²**: 0.873 ± 0.025
+- **MAE**: 18.9 ± 1.8 Mg/ha
+- **Spearman Correlation**: 0.937 ± 0.017
+- **Mean True Biomass**: 191.2 Mg/ha
+- **Biomass Range**: 5.2 - 460.7 Mg/ha
+- **Relative RMSE**: 13.3% of mean biomass
 
-**Original Scale (Biomass in Mg/ha):** -->
+### Final Model Performance (Trained on Complete Dataset)
 
-- **RMSE**: 25.5 ± 2.5 Mg/ha
-- **R²**: 0.8739 ± 0.0228
-- **MAE**: 19.1 ± 1.8 Mg/ha
-- **Mean True Biomass**: 194.7 Mg/ha
-- **Biomass Range**: 39.5 - 373.6 Mg/ha
-- **Relative RMSE**: 13.1% of mean biomass
+The pipeline now includes a final model trained on the entire dataset after cross-validation:
 
+- **RMSE**: 18.2 Mg/ha
+- **R²**: 0.938
+- **MAE**: 12.7 Mg/ha  
+- **Spearman Correlation**: 0.977
+- **Mean Predicted Biomass**: 186.8 Mg/ha
 
+⚠️ *Note: Final model metrics are evaluated on training data and represent an upper bound on performance.*
 
+### Site-Specific Performance (Final Model)
+
+| Site ID | Mean Biomass (Mg/ha) | RMSE (Mg/ha) | R² | MAE (Mg/ha) | Samples |
+|---------|---------------------|---------------|----|--------------|---------| 
+| Yellapur | 214.8 | 19.0 | 0.887 | 14.7 | 421 |
+| Betul  | 93.8 | 7.9 | 0.922 | 6.3 | 132 |
+| Achanakmar | 165.2 | 11.2 | 0.906 | 8.4 | 156 |
+| Khaoyai | 276.1 | 19.6 | 0.880 | 15.8 | 63 |
+| Uppangala | 328.5 | 68.4 | 0.088 | 48.0 | 12 |
+
+*Site 4 shows lower performance due to limited training samples (n=12).*
 
 ### Data Augmentation Implementation
 - Geometric augmentation (flips, rotations)
@@ -330,6 +344,12 @@ The project employs a **Hybrid Site-Spatial Cross-Validation** strategy, impleme
     *   Assigning entire spatial clusters to test/train/validation sets.
     *   Applying a `spatial_buffer` to ensure a minimum distance between training samples and test samples, reducing data leakage due to spatial autocorrelation.
 3.  **Configuration**: The number of folds (`n_folds`) and the `spatial_buffer` distance are configurable in `training_config.yaml`.
+4. **Final Model and Ensemble Configuration**:
+   - `train_final_model`: Train final model on entire dataset (default: true)
+   - `create_ensemble`: Create ensemble from fold models (default: false)  
+   - `final_model_epochs`: Number of epochs for final model training
+   - `ensemble_method`: Method for combining predictions ("average" or "weighted")
+   - `save_fold_models`: Whether to keep individual fold models
 
 This strategy is more robust than simple random splitting, especially when dealing with spatially autocorrelated environmental data like biomass.
 
@@ -353,6 +373,30 @@ This strategy is more robust than simple random splitting, especially when deali
         -   `training_history.png`: Training/validation loss curves, learning rate schedule.
         -   `residual_analysis.png`: Plots of residuals vs. predicted, residual histogram, Q-Q plot.
         -   `site_performance.png`: Bar plots of metrics per site (if multiple sites).
+
+## Model Loading and Inference
+
+### Loading the Final Model for Production
+
+```python
+
+import torch
+from src.models.cnn_models import create_model
+
+# Load final model for inference
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = create_model('cnn_coordinate', input_channels=10, height=24, width=24, device=device)
+model.load_state_dict(torch.load('results/cv_results/final_model.pt', map_location=device))
+model.eval()
+
+# Make predictions on new data
+with torch.no_grad():
+    predictions = model(new_satellite_data)
+    # Convert from log scale to original biomass (Mg/ha)
+    biomass_predictions = torch.exp(predictions) - 1
+
+```
+
 
 ## Testing
 
