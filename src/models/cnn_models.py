@@ -29,7 +29,7 @@ class CNNCoordinateModel(nn.Module):
         self.norm3 = nn.InstanceNorm2d(128, affine=True)
         
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.dropout = nn.Dropout(0.5)
+        self.dropout = nn.Dropout(0.5)  # TODO: why 0.5? Should this be a tunable hyperparameter?
         self.relu = nn.ReLU()
         
         # Calculate size after convolutions and pooling
