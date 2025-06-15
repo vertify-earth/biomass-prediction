@@ -111,6 +111,16 @@ class SpatialAwarePreprocessor:
             
             # Open raster files
             with rasterio.open(bio_file) as bio_src, rasterio.open(sat_file) as sat_src:
+                
+                # --- CRS check ---
+                if bio_src.crs != sat_src.crs:
+                    print(
+                        f"Warning: CRS mismatch for site {site_id}. "
+                        f"Biomass CRS: {bio_src.crs}, Satellite CRS: {sat_src.crs}"
+                    )
+                    print(f"Skipping site {site_id} due to CRS mismatch.\n")
+                    continue
+                
                 # Read data
                 bio_data = bio_src.read(1)  # Biomass data (single band)
                 sat_data = sat_src.read()   # Satellite data (multiple bands)
@@ -359,6 +369,9 @@ class SpatialAwarePreprocessor:
     def create_site_based_split(self, X, y, coordinates, sources, site_info):
         """Create a site-based train/val/test split that respects spatial boundaries."""
         print("\n==== Creating Spatially-Aware Data Split ====")
+
+        seed = getattr(self.config, 'random_seed', 42)
+        np.random.seed(seed)
         
         # Get unique sites and their counts
         unique_sites = np.unique(sources)
@@ -463,7 +476,7 @@ class SpatialAwarePreprocessor:
             min_distances = []
             
             # Use a subset for efficiency if datasets are very large
-            max_points = 1000
+            max_points = 1000  # TODO: clarify why 1000 was chosen; should this be configurable?
             train_subset = train_coords[:min(max_points, len(train_coords))]
             test_subset = test_coords[:min(max_points, len(test_coords))]
             
@@ -501,6 +514,8 @@ class SpatialAwarePreprocessor:
         split_path = os.path.join(self.config.processed_dir, f"split_{timestamp}.npz")
         config_path = os.path.join(self.config.processed_dir, f"preprocessing_config_{timestamp}.json")
         latest_path = os.path.join(self.config.processed_dir, "latest.txt")
+
+        os.makedirs(self.config.processed_dir, exist_ok=True)
         
         # Save numpy arrays
         np.save(X_path, X)
