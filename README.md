@@ -411,6 +411,90 @@ Unit tests are located in the `tests/` directory. They can be run using `pytest`
 conda activate biomass-spatial-cv # or your environment name
 pytest
 ```
+## Limitations
+
+While the model demonstrates strong performance across diverse tropical forest conditions, several limitations should be considered:
+
+### 1. SAR Saturation Effects
+- **High Biomass Saturation**: Synthetic Aperture Radar (SAR) signals, particularly C-band from Sentinel-1, experience saturation effects above approximately **400 Mg/ha**
+- **Reduced Sensitivity**: This saturation leads to decreased model sensitivity and accuracy for very high biomass forests (>400 Mg/ha)
+- **Impact on Dense Forests**: Particularly affects tropical wet evergreen forests and old-growth forest areas
+
+### 2. Spatial Resolution Constraints
+- **40m Resolution Limitation**: Current 40m pixel resolution may not capture fine-scale forest heterogeneity
+- **Mixed Pixel Effects**: Pixels may contain multiple forest types or non-forest areas, affecting biomass estimates
+- **Edge Effects**: Forest-non-forest boundaries may introduce uncertainty in biomass predictions
+
+### 3. Training Data Limitations
+- **Limited High Biomass Samples**: Fewer training samples available for forests >300 Mg/ha (e.g., Uppangala site with only 12 samples)
+- **Geographic Coverage**: Training data concentrated in South/Southeast Asia, limiting generalizability to other tropical regions
+- **Temporal Constraints**: Training data represents specific time periods, potentially missing seasonal variations
+
+### 4. Sensor-Specific Constraints
+- **C-band Limitations**: Current reliance on C-band SAR (Sentinel-1) which has limited penetration in dense canopies
+- **Cloud Coverage**: Optical sensor data (Sentinel-2, Landsat-8) affected by persistent cloud cover in tropical regions
+- **Temporal Compositing**: Multi-temporal compositing may mask important phenological signals
+
+### 5. Model Architecture Limitations
+- **Patch-based Approach**: 24×24 pixel patches may not capture landscape-scale biomass patterns
+- **Fixed Input Channels**: Current architecture requires specific sensor combinations, limiting flexibility
+
+## How to Improve
+
+The following enhancements could significantly improve model performance and applicability:
+
+### 1. Advanced SAR Integration
+- **L-band SAR Data**: Integrate L-band SAR data for better penetration in dense forests
+  - **ESA Biomass Mission**: Incorporate data from the upcoming ESA Biomass satellite (expected 2024-2025) specifically designed for forest biomass monitoring
+  - **NISAR Mission**: Utilize NASA-ISRO NISAR L-band data when available for the corresponding 3 durations of the study period
+  - **ALOS PALSAR-2**: Expand use of existing L-band data with improved temporal coverage
+
+### 2. High-Resolution Ground Truth Data
+- **Local LiDAR Integration**: 
+  - Incorporate high-resolution airborne LiDAR data for local calibration and validation
+  - Use LiDAR-derived metrics (canopy height, vertical structure) as additional input features
+  - Develop site-specific calibration using local LiDAR campaigns
+- **Field Plot Integration**: Add ground-measured forest inventory plots for enhanced validation
+
+### 3. Enhanced Spatial Resolution
+- **Higher Resolution Sensors**: Integrate 10m resolution Sentinel-2 bands and Planet imagery
+- **Super-resolution Techniques**: Apply deep learning-based super-resolution methods to enhance spatial detail
+- **Multi-scale Fusion**: Combine predictions from multiple spatial scales (10m, 20m, 40m)
+
+### 4. Improved Model Architecture
+- **Attention Mechanisms**: Implement spatial attention modules to focus on relevant image regions
+- **Multi-scale CNNs**: Design architectures that process multiple spatial scales simultaneously
+- **Transformer Models**: Explore vision transformers for better long-range spatial dependencies
+- **Uncertainty Quantification**: Add probabilistic outputs to provide prediction confidence intervals
+
+### 5. Extended Training Data
+- **Global Training Data**: Expand training to include tropical forests from Africa, Central/South America
+- **Synthetic Data Generation**: Use physics-based models to generate synthetic training samples
+- **Transfer Learning**: Develop domain adaptation techniques for new geographic regions
+- **Temporal Augmentation**: Include multi-year training data to capture temporal variations
+
+### 6. Advanced Fusion Techniques
+- **Physics-Informed Models**: Incorporate forest growth models and allometric relationships
+- **Multi-sensor Fusion**: Develop sophisticated fusion algorithms for combining radar, optical, and LiDAR data
+- **Temporal Modeling**: Add recurrent neural networks to model temporal biomass changes
+
+### 7. Operational Enhancements
+- **Real-time Processing**: Optimize for near real-time biomass monitoring
+- **Cloud Platform Integration**: Deploy on cloud platforms (Google Earth Engine, AWS) for scalable processing
+- **API Development**: Create APIs for easy integration with forest monitoring systems
+- **Mobile Applications**: Develop field validation tools for ground truthing
+
+### 8. Validation and Robustness
+- **Cross-biome Validation**: Test model performance across different forest biomes
+- **Seasonal Analysis**: Evaluate model stability across different seasons
+- **Disturbance Detection**: Enhance capability to detect and account for forest disturbances
+- **Error Propagation**: Implement comprehensive uncertainty analysis and error propagation methods
+
+### Priority Recommendations
+1. **Immediate (6-12 months)**: Integrate local LiDAR data for calibration, expand PALSAR-2 temporal coverage
+2. **Medium-term (1-2 years)**: Incorporate ESA Biomass and NISAR L-band data when available
+3. **Long-term (2-3 years)**: Develop global training datasets and advanced fusion architectures
+
 
 
 ## License
